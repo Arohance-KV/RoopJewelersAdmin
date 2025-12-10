@@ -1,6 +1,6 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 
-const API_BASE_URL = 'https://jewel-tech.onrender.com'; // Update with your jewel-tech URL
+const API_BASE_URL = import.meta.env.VITE_BASE_URL; // Update with your jewel-tech URL
 
 // Helper function for API calls
 const fetchAPI = async (endpoint, options = {}) => {
