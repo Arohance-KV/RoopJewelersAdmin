@@ -1,6 +1,6 @@
 [build]
   command = "npm run build"
-  publish = "build" # For React (CRA). For Vite use: "dist"
+  publish = "dist"
 
 [[redirects]]
   from = "/*"
