@@ -8,12 +8,15 @@ import Dashboard from './pages/Dashboard';
 import Profile from './pages/Profile';
 import Users from './pages/Users';
 import Product from './pages/Product';
+import Category from './pages/Category'; // New import
 import Layout from './components/Layout';
+
 
 function App() {
   const dispatch = useDispatch();
   const { isAuthenticated } = useSelector((state) => state.auth);
   const [isValidating, setIsValidating] = useState(true);
+
 
   useEffect(() => {
     // Validate JWT on app mount
@@ -32,6 +35,7 @@ function App() {
     }
   }, [dispatch, isAuthenticated]);
 
+
   // Show loading state while validating token
   if (isValidating) {
     return (
@@ -40,6 +44,7 @@ function App() {
       </div>
     );
   }
+
 
   return (
     <BrowserRouter>
@@ -59,6 +64,7 @@ function App() {
               <Route path="profile" element={<Profile />} />
               <Route path="users" element={<Users />} />
               <Route path="products" element={<Product />} />
+              <Route path="categories" element={<Category />} /> {/* New route */}
             </Route>
             <Route path="*" element={<Navigate to="/dashboard" />} />
           </>
@@ -67,5 +73,6 @@ function App() {
     </BrowserRouter>
   );
 }
+
 
 export default App;

@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { useDispatch } from 'react-redux';
-import { Menu, X, LogOut, BarChart3, Users, Package, User } from 'lucide-react';
+import { Menu, X, LogOut, BarChart3, Users, Package, User, FolderTree } from 'lucide-react';
 import { logout } from '../redux/authSlice'; // Adjust path based on your file structure
+
 
 function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -10,19 +11,24 @@ function Layout() {
   const navigate = useNavigate();
   const dispatch = useDispatch();
 
+
   const isActive = (path) => location.pathname === path;
+
 
   const menuItems = [
     { path: '/dashboard', label: 'Dashboard', icon: BarChart3 },
     { path: '/users', label: 'Users', icon: Users },
     { path: '/products', label: 'Products', icon: Package },
+    { path: '/categories', label: 'Categories', icon: FolderTree },
     { path: '/profile', label: 'Profile', icon: User },
   ];
+
 
   const handleLogout = () => {
     dispatch(logout());
     navigate('/login');
   };
+
 
   return (
     <div className="flex h-screen bg-gray-100">
@@ -45,6 +51,7 @@ function Layout() {
             </button>
           </div>
         </div>
+
 
         {/* Navigation */}
         <nav className="flex-1 mt-8 px-2 space-y-1 overflow-y-auto">
@@ -75,6 +82,7 @@ function Layout() {
           })}
         </nav>
 
+
         {/* Footer - Logout */}
         <div className="p-4 pt-0 shrink-0 border-t border-slate-800">
           <button
@@ -89,6 +97,7 @@ function Layout() {
           </button>
         </div>
       </div>
+
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -109,6 +118,7 @@ function Layout() {
           </div>
         </header>
 
+
         {/* Content Area */}
         <main className="flex-1 overflow-auto p-6 bg-gray-50">
           <Outlet />
@@ -117,5 +127,6 @@ function Layout() {
     </div>
   );
 }
+
 
 export default Layout;

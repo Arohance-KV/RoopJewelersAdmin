@@ -13,7 +13,8 @@ import {
   X,
   Search,
   Upload,
-  Image as ImageIcon
+  Image as ImageIcon,
+  FolderTree
 } from 'lucide-react';
 import {
   fetchAllProducts,
@@ -25,13 +26,18 @@ import {
   setCurrentProduct,
   clearCurrentProduct
 } from '../redux/productSlice';
+import { fetchAllCategories } from '../redux/categorySlice';
+
 
 function Product() {
   const dispatch = useDispatch();
-  
+
   // Get products data from Redux store
   const { products, loading, error, success, currentProduct } = useSelector((state) => state.products);
-  
+
+  // Get categories from Redux store
+  const { categories, loading: categoriesLoading } = useSelector((state) => state.categories);
+
   const [showModal, setShowModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [imageFiles, setImageFiles] = useState([]);
@@ -47,10 +53,13 @@ function Product() {
     isActive: true
   });
 
-  // Fetch products on component mount
+
+  // Fetch products and categories on component mount
   useEffect(() => {
     dispatch(fetchAllProducts());
+    dispatch(fetchAllCategories());
   }, [dispatch]);
+
 
   // Clear success message after 3 seconds
   useEffect(() => {
@@ -62,12 +71,18 @@ function Product() {
     }
   }, [success, dispatch]);
 
+
   // Cleanup image previews when component unmounts or modal closes
   useEffect(() => {
     return () => {
-      imagePreviews.forEach(preview => URL.revokeObjectURL(preview));
+      imagePreviews.forEach(preview => {
+        if (preview.startsWith('blob:')) {
+          URL.revokeObjectURL(preview);
+        }
+      });
     };
   }, [imagePreviews]);
+
 
   // Filter products based on search term
   const filteredProducts = products.filter(product =>
@@ -76,33 +91,54 @@ function Product() {
     product.categoryId?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+
   const handleImageChange = (e) => {
     const files = Array.from(e.target.files);
     if (files.length > 0) {
+      // Validate file types and sizes
+      const validFiles = files.filter(file => {
+        const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+        const maxSize = 10 * 1024 * 1024; // 10MB
+
+        if (!validTypes.includes(file.type)) {
+          alert(`${file.name} is not a valid image format`);
+          return false;
+        }
+        if (file.size > maxSize) {
+          alert(`${file.name} is too large (max 10MB)`);
+          return false;
+        }
+        return true;
+      });
+
       // Limit to 5 images
-      const selectedFiles = files.slice(0, 5);
+      const selectedFiles = validFiles.slice(0, 5 - imageFiles.length);
       setImageFiles(prevFiles => [...prevFiles, ...selectedFiles].slice(0, 5));
-      
+
       // Create preview URLs
       const newPreviews = selectedFiles.map(file => URL.createObjectURL(file));
       setImagePreviews(prevPreviews => [...prevPreviews, ...newPreviews].slice(0, 5));
     }
   };
 
+
   const handleRemoveImage = (index) => {
-    // Revoke the URL to free memory
-    URL.revokeObjectURL(imagePreviews[index]);
-    
+    // Revoke the URL to free memory (only for blob URLs)
+    if (imagePreviews[index].startsWith('blob:')) {
+      URL.revokeObjectURL(imagePreviews[index]);
+    }
+
     setImageFiles(prevFiles => prevFiles.filter((_, i) => i !== index));
     setImagePreviews(prevPreviews => prevPreviews.filter((_, i) => i !== index));
   };
 
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     // Create FormData for multipart/form-data
     const formDataToSend = new FormData();
-    
+
     // Append text fields
     formDataToSend.append('name', formData.name);
     formDataToSend.append('sku', formData.sku);
@@ -112,11 +148,12 @@ function Product() {
     formDataToSend.append('purity', formData.purity);
     formDataToSend.append('makingChargesPerGram', parseFloat(formData.makingChargesPerGram));
     formDataToSend.append('isActive', formData.isActive);
-    
+
     // Append image files
     imageFiles.forEach((file, index) => {
       formDataToSend.append('images', file);
     });
+
 
     if (currentProduct) {
       // Update existing product
@@ -128,9 +165,10 @@ function Product() {
       // Create new product
       dispatch(createProduct(formDataToSend));
     }
-    
+
     closeModal();
   };
+
 
   const handleEdit = (product) => {
     dispatch(setCurrentProduct(product));
@@ -144,14 +182,16 @@ function Product() {
       makingChargesPerGram: product.makingChargesPerGram || '',
       isActive: product.isActive !== undefined ? product.isActive : true
     });
-    
+
     // Set existing images for preview (if editing)
     if (product.images && product.images.length > 0) {
       setImagePreviews(product.images);
+      setImageFiles([]); // Clear file objects for existing images
     }
-    
+
     setShowModal(true);
   };
+
 
   const handleDelete = (productId) => {
     if (window.confirm('Are you sure you want to delete this product?')) {
@@ -159,11 +199,13 @@ function Product() {
     }
   };
 
+
   const handleAddNew = () => {
     dispatch(clearCurrentProduct());
     resetForm();
     setShowModal(true);
   };
+
 
   const closeModal = () => {
     setShowModal(false);
@@ -172,6 +214,7 @@ function Product() {
       dispatch(clearCurrentProduct());
     }, 300);
   };
+
 
   const resetForm = () => {
     setFormData({
@@ -184,7 +227,7 @@ function Product() {
       makingChargesPerGram: '',
       isActive: true
     });
-    
+
     // Clean up image previews
     imagePreviews.forEach(preview => {
       if (preview.startsWith('blob:')) {
@@ -195,6 +238,7 @@ function Product() {
     setImagePreviews([]);
   };
 
+
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
     setFormData({
@@ -203,7 +247,13 @@ function Product() {
     });
   };
 
-  const categories = ['rings', 'necklaces', 'earrings', 'bracelets', 'pendants'];
+
+  // Get category name by ID
+  const getCategoryName = (categoryId) => {
+    const category = categories.find(cat => cat._id === categoryId);
+    return category ? category.name : categoryId;
+  };
+
 
   // Loading state
   if (loading && products.length === 0) {
@@ -216,6 +266,7 @@ function Product() {
       </div>
     );
   }
+
 
   return (
     <div className="space-y-6">
@@ -237,12 +288,14 @@ function Product() {
         </button>
       </div>
 
+
       {/* Success Message */}
       {success && (
         <div className="bg-green-50 border border-green-200 rounded-lg p-4">
           <p className="text-sm text-green-700">Operation completed successfully!</p>
         </div>
       )}
+
 
       {/* Error Message */}
       {error && (
@@ -257,6 +310,7 @@ function Product() {
         </div>
       )}
 
+
       {/* Search Bar */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
         <div className="relative max-w-md">
@@ -270,6 +324,7 @@ function Product() {
           />
         </div>
       </div>
+
 
       {/* Products Table */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
@@ -353,7 +408,7 @@ function Product() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className="px-3 py-1 bg-purple-100 text-purple-800 rounded-full text-xs font-medium capitalize">
-                        {product.categoryId || 'N/A'}
+                        {getCategoryName(product.categoryId) || 'N/A'}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
@@ -396,6 +451,7 @@ function Product() {
         )}
       </div>
 
+
       {/* Add/Edit Product Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -413,6 +469,7 @@ function Product() {
               </button>
             </div>
 
+
             {/* Modal Body */}
             <form onSubmit={handleSubmit} className="p-6 space-y-6">
               {/* Image Upload Section */}
@@ -421,7 +478,7 @@ function Product() {
                   <ImageIcon size={16} className="text-gray-400" />
                   <span>Product Images (Max 5)</span>
                 </label>
-                
+
                 {/* Image Upload Area */}
                 <div className="border-2 border-dashed border-gray-300 rounded-xl p-6 hover:border-blue-500 transition-colors">
                   <input
@@ -444,10 +501,11 @@ function Product() {
                       Click to upload or drag and drop
                     </p>
                     <p className="text-xs text-gray-500">
-                      PNG, JPG, GIF up to 10MB ({imagePreviews.length}/5 images)
+                      PNG, JPG, GIF, WebP up to 10MB ({imagePreviews.length}/5 images)
                     </p>
                   </label>
                 </div>
+
 
                 {/* Image Previews */}
                 {imagePreviews.length > 0 && (
@@ -475,6 +533,7 @@ function Product() {
                 )}
               </div>
 
+
               {/* Product Name */}
               <div>
                 <label className="flex items-center space-x-2 text-sm font-medium text-gray-700 mb-2">
@@ -491,6 +550,7 @@ function Product() {
                   placeholder="22K Gold Ring"
                 />
               </div>
+
 
               {/* SKU */}
               <div>
@@ -509,6 +569,7 @@ function Product() {
                 />
               </div>
 
+
               {/* Description */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -524,10 +585,12 @@ function Product() {
                 />
               </div>
 
+
               {/* Category */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Category *
+                <label className="flex items-center space-x-2 text-sm font-medium text-gray-700 mb-2">
+                  <FolderTree size={16} className="text-gray-400" />
+                  <span>Category *</span>
                 </label>
                 <select
                   name="categoryId"
@@ -535,15 +598,26 @@ function Product() {
                   onChange={handleInputChange}
                   required
                   className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                  disabled={categoriesLoading}
                 >
-                  <option value="">Select Category</option>
-                  {categories.map((cat) => (
-                    <option key={cat} value={cat}>
-                      {cat.charAt(0).toUpperCase() + cat.slice(1)}
-                    </option>
-                  ))}
+                  <option value="">
+                    {categoriesLoading ? 'Loading categories...' : 'Select Category'}
+                  </option>
+                  {categories
+                    .filter(cat => cat.isActive) // Only show active categories
+                    .map((cat) => (
+                      <option key={cat._id} value={cat._id}>
+                        {cat.name}
+                      </option>
+                    ))}
                 </select>
+                {categories.length === 0 && !categoriesLoading && (
+                  <p className="text-xs text-red-500 mt-1">
+                    No categories available. Please create a category first.
+                  </p>
+                )}
               </div>
+
 
               {/* Weight and Purity */}
               <div className="grid grid-cols-2 gap-4">
@@ -569,21 +643,18 @@ function Product() {
                     <Crown size={16} className="text-gray-400" />
                     <span>Purity *</span>
                   </label>
-                  <select
+                  <input
+                    type="text"
                     name="purity"
                     value={formData.purity}
                     onChange={handleInputChange}
                     required
                     className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                  >
-                    <option value="">Select Purity</option>
-                    <option value="24K">24K</option>
-                    <option value="22K">22K</option>
-                    <option value="18K">18K</option>
-                    <option value="14K">14K</option>
-                  </select>
+                    placeholder="e.g., 24K, 22K, 18K, 916, 750"
+                  />
                 </div>
               </div>
+
 
               {/* Making Charges */}
               <div>
@@ -603,6 +674,7 @@ function Product() {
                 />
               </div>
 
+
               {/* Active Status */}
               <div className="flex items-center space-x-3">
                 <input
@@ -616,6 +688,7 @@ function Product() {
                   Product is Active
                 </label>
               </div>
+
 
               {/* Submit Button */}
               <div className="flex items-center space-x-3 pt-4 border-t border-gray-200">
@@ -651,5 +724,6 @@ function Product() {
     </div>
   );
 }
+
 
 export default Product;
