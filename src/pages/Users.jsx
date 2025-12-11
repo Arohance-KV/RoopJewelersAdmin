@@ -56,12 +56,12 @@ function Users() {
   const filteredUsers = users.filter(user => {
     const fullName = `${user.firstName || ''} ${user.lastName || ''}`.toLowerCase();
     const email = (user.email || '').toLowerCase();
-    const businessName = (user.businessName || '').toLowerCase();
+    const buisnessName = (user.buisnessName || '').toLowerCase();
     const searchLower = searchTerm.toLowerCase();
     
     return fullName.includes(searchLower) || 
            email.includes(searchLower) || 
-           businessName.includes(searchLower);
+           buisnessName.includes(searchLower);
   });
 
   const handleStatusChange = (userId, newStatus) => {
@@ -264,7 +264,7 @@ function Users() {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center space-x-2 text-sm text-gray-900">
                         <Building size={16} className="text-gray-400" />
-                        <span className="font-medium">{user.businessName || 'N/A'}</span>
+                        <span className="font-medium">{user.buisnessName || 'N/A'}</span>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
@@ -403,7 +403,7 @@ function Users() {
                   <div className="grid grid-cols-1 gap-4">
                     <div className="bg-gray-50 p-4 rounded-lg">
                       <p className="text-sm text-gray-500 mb-1">Business Name</p>
-                      <p className="font-medium text-gray-900">{currentUser.businessName || 'N/A'}</p>
+                      <p className="font-medium text-gray-900">{currentUser.buisnessName || 'N/A'}</p>
                     </div>
                   </div>
                 </div>
