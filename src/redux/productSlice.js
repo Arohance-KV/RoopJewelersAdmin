@@ -1,6 +1,6 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 
-const API_BASE_URL = import.meta.env.VITE_BASE_URL; // Update with your jewel-tech URL
+const API_BASE_URL = import.meta.env.VITE_BASE_URL;
 
 // Helper function for API calls
 const fetchAPI = async (endpoint, options = {}) => {
@@ -32,9 +32,51 @@ const initialState = {
   error: null,
   currentProduct: null,
   success: false,
+  uploadedImages: [],
+  uploadLoading: false,
 };
 
 // Async thunks
+
+// POST - Upload image assets
+export const uploadImage = createAsyncThunk(
+  'products/uploadImage',
+  async (imageFile, { rejectWithValue }) => {
+    try {
+      const token = localStorage.getItem('accessToken');
+      const formData = new FormData();
+      formData.append('image', imageFile);
+
+      const response = await fetch(`${API_BASE_URL}/admin/upload/assets`, {
+        method: 'POST',
+        headers: {
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to upload image');
+      }
+
+      // Handle both 'data' and 'images' response shapes from backend
+      const images = data.images || data.data || [];
+      if (data.success && images.length > 0) {
+        // Ensure we always return an array
+        return Array.isArray(images) ? images : [images];
+      }
+      
+      // Improved error handling
+      const errorMsg = data.message || 'Invalid response from server';
+      console.error('Upload failed with server data:', data);  // Keep for now if needed, remove in production
+      throw new Error(errorMsg);
+    } catch (error) {
+      return rejectWithValue(error.message || 'Failed to upload image');
+    }
+  }
+);
 
 // GET - Fetch all products
 export const fetchAllProducts = createAsyncThunk(
@@ -46,7 +88,7 @@ export const fetchAllProducts = createAsyncThunk(
       });
 
       if (data.success) {
-        return data.data; // Returns array of products
+        return data.data;
       }
       return rejectWithValue('Failed to fetch products');
     } catch (error) {
@@ -66,7 +108,7 @@ export const createProduct = createAsyncThunk(
       });
 
       if (data.success) {
-        return data.data; // Returns the created product
+        return data.data;
       }
       return rejectWithValue('Failed to create product');
     } catch (error) {
@@ -86,7 +128,7 @@ export const updateProduct = createAsyncThunk(
       });
 
       if (data.success) {
-        return data.data; // Returns the updated product
+        return data.data;
       }
       return rejectWithValue('Failed to update product');
     } catch (error) {
@@ -105,7 +147,7 @@ export const deleteProduct = createAsyncThunk(
       });
 
       if (data.success) {
-        return productId; // Return the deleted product ID
+        return productId;
       }
       return rejectWithValue('Failed to delete product');
     } catch (error) {
@@ -131,8 +173,29 @@ const productSlice = createSlice({
     clearSuccess: (state) => {
       state.success = false;
     },
+    clearUploadedImages: (state) => {
+      state.uploadedImages = [];
+    },
   },
   extraReducers: (builder) => {
+    // Upload image
+    builder
+      .addCase(uploadImage.pending, (state) => {
+        state.uploadLoading = true;
+        state.error = null;
+      })
+      .addCase(uploadImage.fulfilled, (state, action) => {
+        state.uploadLoading = false;
+        // Safely handle the payload - ensure it's an array
+        const newImages = Array.isArray(action.payload) ? action.payload : [action.payload];
+        state.uploadedImages = [...state.uploadedImages, ...newImages];
+        state.error = null;
+      })
+      .addCase(uploadImage.rejected, (state, action) => {
+        state.uploadLoading = false;
+        state.error = action.payload;
+      });
+
     // Fetch all products
     builder
       .addCase(fetchAllProducts.pending, (state) => {
@@ -216,7 +279,8 @@ export const {
   clearProductError, 
   setCurrentProduct, 
   clearCurrentProduct,
-  clearSuccess 
+  clearSuccess,
+  clearUploadedImages 
 } = productSlice.actions;
 
 export default productSlice.reducer;

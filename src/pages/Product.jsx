@@ -21,26 +21,34 @@ import {
   createProduct,
   updateProduct,
   deleteProduct,
+  uploadImage,
   clearProductError,
   clearSuccess,
   setCurrentProduct,
-  clearCurrentProduct
+  clearCurrentProduct,
+  clearUploadedImages
 } from '../redux/productSlice';
 import { fetchAllCategories } from '../redux/categorySlice';
-
 
 function Product() {
   const dispatch = useDispatch();
 
   // Get products data from Redux store
-  const { products, loading, error, success, currentProduct } = useSelector((state) => state.products);
+  const { 
+    products, 
+    loading, 
+    error, 
+    success, 
+    currentProduct,
+    uploadedImages,
+    uploadLoading 
+  } = useSelector((state) => state.products);
 
   // Get categories from Redux store
   const { categories, loading: categoriesLoading } = useSelector((state) => state.categories);
 
   const [showModal, setShowModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [imageFiles, setImageFiles] = useState([]);
   const [imagePreviews, setImagePreviews] = useState([]);
   const [formData, setFormData] = useState({
     name: '',
@@ -53,13 +61,11 @@ function Product() {
     isActive: true
   });
 
-
   // Fetch products and categories on component mount
   useEffect(() => {
     dispatch(fetchAllProducts());
     dispatch(fetchAllCategories());
   }, [dispatch]);
-
 
   // Clear success message after 3 seconds
   useEffect(() => {
@@ -70,7 +76,6 @@ function Product() {
       return () => clearTimeout(timer);
     }
   }, [success, dispatch]);
-
 
   // Cleanup image previews when component unmounts or modal closes
   useEffect(() => {
@@ -83,7 +88,6 @@ function Product() {
     };
   }, [imagePreviews]);
 
-
   // Filter products based on search term
   const filteredProducts = products.filter(product =>
     product.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -91,8 +95,7 @@ function Product() {
     product.categoryId?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-
-  const handleImageChange = (e) => {
+  const handleImageChange = async (e) => {
     const files = Array.from(e.target.files);
     if (files.length > 0) {
       // Validate file types and sizes
@@ -111,16 +114,33 @@ function Product() {
         return true;
       });
 
-      // Limit to 5 images
-      const selectedFiles = validFiles.slice(0, 5 - imageFiles.length);
-      setImageFiles(prevFiles => [...prevFiles, ...selectedFiles].slice(0, 5));
+      // Limit to 5 images total
+      const remainingSlots = 5 - imagePreviews.length;
+      const filesToUpload = validFiles.slice(0, remainingSlots);
 
-      // Create preview URLs
-      const newPreviews = selectedFiles.map(file => URL.createObjectURL(file));
-      setImagePreviews(prevPreviews => [...prevPreviews, ...newPreviews].slice(0, 5));
+      if (filesToUpload.length === 0) return;
+
+      // Create preview URLs immediately for better UX
+      const newPreviews = filesToUpload.map(file => URL.createObjectURL(file));
+      setImagePreviews(prevPreviews => [...prevPreviews, ...newPreviews]);
+
+      // Upload each file to the server
+      for (const file of filesToUpload) {
+        try {
+          await dispatch(uploadImage(file)).unwrap();
+        } catch (error) {
+          console.error('Failed to upload image:', error);
+          alert(`Failed to upload ${file.name}`);
+          // Remove the preview for failed upload
+          const failedIndex = newPreviews.indexOf(URL.createObjectURL(file));
+          if (failedIndex !== -1) {
+            URL.revokeObjectURL(newPreviews[failedIndex]);
+            setImagePreviews(prev => prev.filter((_, i) => i !== failedIndex));
+          }
+        }
+      }
     }
   };
-
 
   const handleRemoveImage = (index) => {
     // Revoke the URL to free memory (only for blob URLs)
@@ -128,50 +148,64 @@ function Product() {
       URL.revokeObjectURL(imagePreviews[index]);
     }
 
-    setImageFiles(prevFiles => prevFiles.filter((_, i) => i !== index));
     setImagePreviews(prevPreviews => prevPreviews.filter((_, i) => i !== index));
+    
+    // Also remove from uploadedImages in Redux
+    const uploadedIndex = uploadedImages.findIndex(url => url === imagePreviews[index]);
+    if (uploadedIndex === -1 && !imagePreviews[index].startsWith('blob:')) {
+      // It's an existing image URL, we need to track removal
+      // You might want to add a separate state for removed images if needed
+    }
   };
-
 
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    // Create FormData for multipart/form-data
-    const formDataToSend = new FormData();
+    // Combine uploaded images with existing product images (for edit mode)
+    const allImages = [
+      ...imagePreviews.filter(img => !img.startsWith('blob:')), // Existing images (not blob URLs)
+      ...uploadedImages // Newly uploaded images from Redux
+    ];
 
-    // Append text fields
-    formDataToSend.append('name', formData.name);
-    formDataToSend.append('sku', formData.sku);
-    formDataToSend.append('description', formData.description);
-    formDataToSend.append('categoryId', formData.categoryId);
-    formDataToSend.append('weight', parseFloat(formData.weight));
-    formDataToSend.append('purity', formData.purity);
-    formDataToSend.append('makingChargesPerGram', parseFloat(formData.makingChargesPerGram));
-    formDataToSend.append('isActive', formData.isActive);
-
-    // Append image files
-    imageFiles.forEach((file, index) => {
-      formDataToSend.append('images', file);
-    });
-
-
-    if (currentProduct) {
-      // Update existing product
-      dispatch(updateProduct({ 
-        productId: currentProduct._id, 
-        productData: formDataToSend 
-      }));
-    } else {
-      // Create new product
-      dispatch(createProduct(formDataToSend));
+    if (allImages.length === 0) {
+      alert('Please upload at least one product image');
+      return;
     }
 
-    closeModal();
-  };
+    // Create the product data object
+    const productData = {
+      name: formData.name,
+      sku: formData.sku,
+      description: formData.description,
+      categoryId: formData.categoryId,
+      weight: parseFloat(formData.weight),
+      purity: formData.purity,
+      makingChargesPerGram: parseFloat(formData.makingChargesPerGram),
+      isActive: formData.isActive,
+      images: allImages // Send image URLs array
+    };
 
+    try {
+      if (currentProduct) {
+        // Update existing product
+        await dispatch(updateProduct({ 
+          productId: currentProduct._id, 
+          productData 
+        })).unwrap();
+      } else {
+        // Create new product
+        await dispatch(createProduct(productData)).unwrap();
+      }
+      closeModal();
+    } catch (error) {
+      console.error('Failed to save product:', error);
+    }
+  };
 
   const handleEdit = (product) => {
     dispatch(setCurrentProduct(product));
+    dispatch(clearUploadedImages()); // Clear any previously uploaded images
+    
     setFormData({
       name: product.name || '',
       sku: product.sku || '',
@@ -186,12 +220,10 @@ function Product() {
     // Set existing images for preview (if editing)
     if (product.images && product.images.length > 0) {
       setImagePreviews(product.images);
-      setImageFiles([]); // Clear file objects for existing images
     }
 
     setShowModal(true);
   };
-
 
   const handleDelete = (productId) => {
     if (window.confirm('Are you sure you want to delete this product?')) {
@@ -199,22 +231,21 @@ function Product() {
     }
   };
 
-
   const handleAddNew = () => {
     dispatch(clearCurrentProduct());
+    dispatch(clearUploadedImages());
     resetForm();
     setShowModal(true);
   };
-
 
   const closeModal = () => {
     setShowModal(false);
     setTimeout(() => {
       resetForm();
       dispatch(clearCurrentProduct());
+      dispatch(clearUploadedImages());
     }, 300);
   };
-
 
   const resetForm = () => {
     setFormData({
@@ -234,10 +265,8 @@ function Product() {
         URL.revokeObjectURL(preview);
       }
     });
-    setImageFiles([]);
     setImagePreviews([]);
   };
-
 
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -247,13 +276,15 @@ function Product() {
     });
   };
 
-
   // Get category name by ID
   const getCategoryName = (categoryId) => {
     const category = categories.find(cat => cat._id === categoryId);
     return category ? category.name : categoryId;
   };
 
+  // Calculate total images (previews + uploaded)
+  const totalImages = imagePreviews.length;
+  const canUploadMore = totalImages < 5;
 
   // Loading state
   if (loading && products.length === 0) {
@@ -266,7 +297,6 @@ function Product() {
       </div>
     );
   }
-
 
   return (
     <div className="space-y-6">
@@ -288,14 +318,12 @@ function Product() {
         </button>
       </div>
 
-
       {/* Success Message */}
       {success && (
         <div className="bg-green-50 border border-green-200 rounded-lg p-4">
           <p className="text-sm text-green-700">Operation completed successfully!</p>
         </div>
       )}
-
 
       {/* Error Message */}
       {error && (
@@ -310,7 +338,6 @@ function Product() {
         </div>
       )}
 
-
       {/* Search Bar */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
         <div className="relative max-w-md">
@@ -324,7 +351,6 @@ function Product() {
           />
         </div>
       </div>
-
 
       {/* Products Table */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
@@ -451,7 +477,6 @@ function Product() {
         )}
       </div>
 
-
       {/* Add/Edit Product Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -469,7 +494,6 @@ function Product() {
               </button>
             </div>
 
-
             {/* Modal Body */}
             <form onSubmit={handleSubmit} className="p-6 space-y-6">
               {/* Image Upload Section */}
@@ -477,6 +501,12 @@ function Product() {
                 <label className="flex items-center space-x-2 text-sm font-medium text-gray-700 mb-3">
                   <ImageIcon size={16} className="text-gray-400" />
                   <span>Product Images (Max 5)</span>
+                  {uploadLoading && (
+                    <span className="text-blue-600 text-xs flex items-center space-x-1">
+                      <div className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                      <span>Uploading...</span>
+                    </span>
+                  )}
                 </label>
 
                 {/* Image Upload Area */}
@@ -488,24 +518,23 @@ function Product() {
                     accept="image/*"
                     onChange={handleImageChange}
                     className="hidden"
-                    disabled={imagePreviews.length >= 5}
+                    disabled={!canUploadMore || uploadLoading}
                   />
                   <label
                     htmlFor="image-upload"
                     className={`flex flex-col items-center justify-center cursor-pointer ${
-                      imagePreviews.length >= 5 ? 'opacity-50 cursor-not-allowed' : ''
+                      !canUploadMore || uploadLoading ? 'opacity-50 cursor-not-allowed' : ''
                     }`}
                   >
                     <Upload size={48} className="text-gray-400 mb-3" />
                     <p className="text-sm font-medium text-gray-700 mb-1">
-                      Click to upload or drag and drop
+                      {uploadLoading ? 'Uploading...' : 'Click to upload or drag and drop'}
                     </p>
                     <p className="text-xs text-gray-500">
-                      PNG, JPG, GIF, WebP up to 10MB ({imagePreviews.length}/5 images)
+                      PNG, JPG, GIF, WebP up to 10MB ({totalImages}/5 images)
                     </p>
                   </label>
                 </div>
-
 
                 {/* Image Previews */}
                 {imagePreviews.length > 0 && (
@@ -521,6 +550,7 @@ function Product() {
                           type="button"
                           onClick={() => handleRemoveImage(index)}
                           className="absolute -top-2 -right-2 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
+                          disabled={uploadLoading}
                         >
                           <X size={16} />
                         </button>
@@ -532,7 +562,6 @@ function Product() {
                   </div>
                 )}
               </div>
-
 
               {/* Product Name */}
               <div>
@@ -551,7 +580,6 @@ function Product() {
                 />
               </div>
 
-
               {/* SKU */}
               <div>
                 <label className="flex items-center space-x-2 text-sm font-medium text-gray-700 mb-2">
@@ -569,7 +597,6 @@ function Product() {
                 />
               </div>
 
-
               {/* Description */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -584,7 +611,6 @@ function Product() {
                   placeholder="Product description..."
                 />
               </div>
-
 
               {/* Category */}
               <div>
@@ -604,7 +630,7 @@ function Product() {
                     {categoriesLoading ? 'Loading categories...' : 'Select Category'}
                   </option>
                   {categories
-                    .filter(cat => cat.isActive) // Only show active categories
+                    .filter(cat => cat.isActive)
                     .map((cat) => (
                       <option key={cat._id} value={cat._id}>
                         {cat.name}
@@ -617,7 +643,6 @@ function Product() {
                   </p>
                 )}
               </div>
-
 
               {/* Weight and Purity */}
               <div className="grid grid-cols-2 gap-4">
@@ -655,7 +680,6 @@ function Product() {
                 </div>
               </div>
 
-
               {/* Making Charges */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -674,7 +698,6 @@ function Product() {
                 />
               </div>
 
-
               {/* Active Status */}
               <div className="flex items-center space-x-3">
                 <input
@@ -689,7 +712,6 @@ function Product() {
                 </label>
               </div>
 
-
               {/* Submit Button */}
               <div className="flex items-center space-x-3 pt-4 border-t border-gray-200">
                 <button
@@ -701,7 +723,7 @@ function Product() {
                 </button>
                 <button
                   type="submit"
-                  disabled={loading}
+                  disabled={loading || uploadLoading || totalImages === 0}
                   className="flex-1 bg-blue-600 text-white px-4 py-3 rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-50 flex items-center justify-center space-x-2"
                 >
                   {loading ? (
@@ -724,6 +746,5 @@ function Product() {
     </div>
   );
 }
-
 
 export default Product;
